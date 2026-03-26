@@ -32,6 +32,7 @@ def predict(req: PredictionRequest):
         "score": float(res.get("score", 0.0)),
     }
 #fixing the predict_batch endpoint to handle empty list and return proper error message
+#also added error handling for the predict_csv endpoint to handle cases where the CSV file cannot be loaded or the specified text column is not found.
 @app.post("/predict_batch")
 def predict_batch(req: BatchRequest):
     if len(req.texts) == 0:
