@@ -35,4 +35,3 @@ streamlit run sentiflow/frontend/dashboard.py
 - `POST /predict` {"text": "some text"}
 - `POST /predict_batch` {"texts": ["t1", "t2"]}
 - `POST /predict_csv` {"csv_path": "path/to.csv", "text_column": "text"}
-rthgf
