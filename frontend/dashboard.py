@@ -52,7 +52,7 @@ if mode == "Manual Text":
             with cols[0]:
                 st.bar_chart(counts)
             with cols[1]:
-                st.pyplot(WordCloud(width=400, height=250).generate(" ".join([text])).to_image())
+                st.image(WordCloud(width=400, height=250).generate(" ".join([text])).to_image(), use_column_width=True)
 
             st.subheader("Recent Predictions")
             st.dataframe(df)
@@ -78,7 +78,7 @@ else:
             st.subheader("Batch Sentiment Distribution")
             dist = pd_result["label"].value_counts()
             st.bar_chart(dist)
-            st.pyplot(WordCloud(width=800, height=400).generate(" ".join(df[colname].astype(str).tolist())).to_image())
+            st.image(WordCloud(width=800, height=400).generate(" ".join(df[colname].astype(str).tolist())).to_image(), use_column_width=True)
 
             st.subheader("Timeline Trend (simulated by row order)")
             trend = pd.DataFrame({"score": pd_result["score"], "label": pd_result["label"]})
