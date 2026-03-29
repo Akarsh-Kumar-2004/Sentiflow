@@ -1,16 +1,31 @@
 from transformers import pipeline
 
-
 class SentimentModel:
     def __init__(self):
-        # distilbert-base-uncased-finetuned-sst-2-english is a small sentiment model
-        self._pipeline = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
+        self._pipeline = pipeline(
+            "sentiment-analysis",
+            model="cardiffnlp/twitter-roberta-base-sentiment"
+        )
+
+        self.label_map = {
+            "LABEL_0": "NEGATIVE",
+            "LABEL_1": "NEUTRAL",
+            "LABEL_2": "POSITIVE"
+        }
 
     def predict(self, text: str):
-        results = self._pipeline(text)
-        # results is a list like [{label: 'POSITIVE', score: 0.999}]
-        return results[0]
+        res = self._pipeline(text)[0]
+        return {
+            "label": self.label_map.get(res["label"], res["label"]),
+            "score": res["score"]
+        }
 
     def predict_batch(self, texts: list[str]):
-        results = self._pipeline(texts, batch_size=16)
-        return results
+        results = self._pipeline(texts)
+        return [
+            {
+                "label": self.label_map.get(r["label"], r["label"]),
+                "score": r["score"]
+            }
+            for r in results
+        ]
