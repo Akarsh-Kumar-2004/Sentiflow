@@ -12,16 +12,26 @@ class TopicDataError(RuntimeError):
 
 
 class TopicDataService:
-    def fetch(self, keyword: str, source: str = "all", limit: int = 50) -> list[dict[str, Any]]:
+    def fetch(self, keyword: str, source: str = "all", limit: int = 50) -> dict[str, Any]:
         items: list[dict[str, Any]] = []
+        errors: dict[str, str] = {}
         normalized_source = source.lower()
 
         if normalized_source in {"all", "newsapi"}:
-            items.extend(self._fetch_newsapi(keyword, limit))
+            try:
+                items.extend(self._fetch_newsapi(keyword, limit))
+            except Exception as exc:
+                errors["newsapi"] = self._format_error(exc)
         if normalized_source in {"all", "gnews"}:
-            items.extend(self._fetch_gnews(keyword, limit))
+            try:
+                items.extend(self._fetch_gnews(keyword, limit))
+            except Exception as exc:
+                errors["gnews"] = self._format_error(exc)
         if normalized_source in {"all", "twitter"}:
-            items.extend(self._fetch_twitter(keyword, limit))
+            try:
+                items.extend(self._fetch_twitter(keyword, limit))
+            except Exception as exc:
+                errors["twitter"] = self._format_error(exc)
 
         deduped: dict[str, dict[str, Any]] = {}
         for item in items:
@@ -34,7 +44,7 @@ class TopicDataService:
             key=lambda item: item.get("published_at") or "",
             reverse=True,
         )
-        return sorted_items[:limit]
+        return {"items": sorted_items[:limit], "errors": errors}
 
     def _fetch_newsapi(self, keyword: str, limit: int) -> list[dict[str, Any]]:
         api_key = os.getenv("NEWSAPI_KEY")
@@ -139,3 +149,13 @@ class TopicDataService:
         if isinstance(value, datetime):
             return value.isoformat()
         return str(value)
+
+    def _format_error(self, exc: Exception) -> str:
+        if isinstance(exc, requests.HTTPError) and exc.response is not None:
+            try:
+                payload = exc.response.json()
+                message = payload.get("message") or payload.get("errors") or payload
+            except ValueError:
+                message = exc.response.text or str(exc)
+            return str(message)
+        return str(exc)

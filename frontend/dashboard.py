@@ -14,7 +14,7 @@ st.title("SentiFlow - Real-Time Sentiment Intelligence")
 # Sidebar
 with st.sidebar:
     st.header("Actions")
-    mode = st.radio("Mode:", ["Manual Text", "Topic Tracking", "Batch CSV"])
+    mode = st.radio("Mode:", ["Manual Text", "Topic Tracking"])
     autorefresh = st.checkbox("Auto-refresh predictions", value=False)
     refresh_interval = st.slider("Auto-refresh interval (seconds)", 5, 60, 15)
 
@@ -22,14 +22,7 @@ with st.sidebar:
 # API functions
 @st.cache_data
 def fetch_prediction(text):
-    r = requests.post(f"{API_URL}/predict", json={"text": text})
-    r.raise_for_status()
-    return r.json()
-
-
-@st.cache_data
-def fetch_batch(texts):
-    r = requests.post(f"{API_URL}/predict_batch", json={"texts": texts})
+    r = requests.post(f"{API_URL}/predict", json={"text": text}, timeout=60)
     r.raise_for_status()
     return r.json()
 
@@ -39,6 +32,7 @@ def fetch_topic(keyword, source, limit):
     r = requests.post(
         f"{API_URL}/analyze_topic",
         json={"keyword": keyword, "source": source, "limit": limit},
+        timeout=60,
     )
     r.raise_for_status()
     return r.json()
@@ -67,7 +61,8 @@ if mode == "Manual Text":
 
         else:
             # 🔹 Single prediction
-            pred = fetch_prediction(text)
+            with st.spinner("Analyzing text..."):
+                pred = fetch_prediction(text)
 
             metrics = st.columns(4)
             metrics[0].metric("Sentiment", pred["label"])
@@ -131,24 +126,39 @@ elif mode == "Topic Tracking":
             st.warning("Enter a keyword to fetch and analyze real texts.")
         else:
             try:
-                topic = fetch_topic(keyword, source, limit)
+                with st.spinner(f"Fetching and analyzing {limit} texts for '{keyword}'..."):
+                    topic = fetch_topic(keyword, source, limit)
             except HTTPError as exc:
                 try:
                     detail = exc.response.json().get("detail", str(exc))
                 except ValueError:
                     detail = str(exc)
-                st.error(detail)
+                if isinstance(detail, dict):
+                    st.error(detail.get("message", "Topic tracking failed."))
+                    if detail.get("sources"):
+                        st.json(detail["sources"])
+                else:
+                    st.error(detail)
             else:
+                source_errors = topic.get("source_errors", {})
+                if source_errors:
+                    st.warning("Some sources failed, but partial results are shown below.")
+                    st.json(source_errors)
+
                 metrics = st.columns(4)
+                sentiment_label = topic.get("sentiment_label")
+                if not sentiment_label:
+                    avg_sentiment = float(topic.get("avg_sentiment", 0.0))
+                    if avg_sentiment > 0.2:
+                        sentiment_label = "POSITIVE"
+                    elif avg_sentiment < -0.2:
+                        sentiment_label = "NEGATIVE"
+                    else:
+                        sentiment_label = "NEUTRAL"
                 metrics[0].metric("Texts analyzed", topic["count"])
-                metrics[1].metric("Avg sentiment", f"{topic['avg_sentiment']:.2f}")
+                metrics[1].metric("Sentiment", sentiment_label)
                 metrics[2].metric("Dominant emotion", topic["dominant_emotion"])
                 metrics[3].metric("Source", topic["source"])
-
-                timeline_df = pd.DataFrame(topic["timeline"])
-                if not timeline_df.empty:
-                    st.subheader("Trend Over Time")
-                    st.line_chart(timeline_df.set_index("date")[["avg_sentiment", "count"]])
 
                 emotion_df = pd.DataFrame(
                     list(topic["emotion_breakdown"].items()),
@@ -178,38 +188,3 @@ elif mode == "Topic Tracking":
 
                 st.subheader("Topic Word Cloud")
                 render_wordcloud(items_df["text"].tolist())
-
-else:
-    csv_file = st.file_uploader("Upload CSV file", type=["csv"])
-    colname = st.text_input("Text column name", value="text")
-
-    if csv_file is not None:
-        df = pd.read_csv(csv_file)
-        st.write(df.head())
-
-        if st.button("Analyze Batch"):
-            texts = df[colname].astype(str).tolist()
-            pred = fetch_batch(texts)
-
-            pd_result = pd.DataFrame(pred["items"])
-
-            st.dataframe(pd_result, use_container_width=True)
-
-            st.subheader("Batch Sentiment Distribution")
-            st.bar_chart(pd_result["label"].value_counts())
-
-            st.subheader("Batch Emotion Distribution")
-            st.bar_chart(pd_result["emotion"].value_counts())
-
-            st.subheader("Word Cloud")
-            render_wordcloud(df[colname].astype(str).tolist())
-
-            st.subheader("Timeline Trend")
-            st.line_chart(pd_result[["score", "sentiment_value"]])
-
-            if autorefresh:
-                while True:
-                    time.sleep(refresh_interval)
-                    pred = fetch_batch(texts)
-                    st.write("Auto-refreshed batch", pred["items"][:3])
-                    st.rerun()
