@@ -4,3 +4,6 @@ transformers
 torch
 pandas
 scikit-learn
+requests
+snscrape
+pytest
