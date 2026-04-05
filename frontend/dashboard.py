@@ -102,9 +102,7 @@ if mode == "Manual Text":
                     st.write(f"Refresh {i}: {pred}")
 
 
-# =========================
-# 🔹 BATCH MODE
-# =========================
+
 else:
     csv_file = st.file_uploader("Upload CSV file", type=["csv"])
     colname = st.text_input("Text column name", value="text")
