@@ -6,3 +6,4 @@ wordcloud
 numpy
 altair
 tensorflow
+python-dotenv

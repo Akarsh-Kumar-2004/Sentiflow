@@ -4,8 +4,9 @@ import pandas as pd
 import time
 from requests import HTTPError
 from wordcloud import WordCloud
+import os
 
-API_URL = "http://localhost:8000"
+API_URL = os.getenv("API_URL", "http://localhost:8000")
 
 st.set_page_config(page_title="SentiFlow Dashboard", layout="wide")
 
