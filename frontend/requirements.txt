@@ -1,9 +1,17 @@
+# streamlit
+# requests
+# pandas
+# matplotlib
+# wordcloud
+# numpy
+# altair
+# tensorflow
+# python-dotenv
 streamlit
-requests
 pandas
-matplotlib
 wordcloud
-numpy
-altair
-tensorflow
+transformers
+torch
+requests
 python-dotenv
+scikit-learn

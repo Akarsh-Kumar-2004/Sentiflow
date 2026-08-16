@@ -1,12 +1,29 @@
 import streamlit as st
-import requests
+#import requests
 import pandas as pd
 import time
-from requests import HTTPError
+#from requests import HTTPError
 from wordcloud import WordCloud
-import os
+#import os
 
-API_URL = os.getenv("API_URL", "http://localhost:8000")
+#API_URL = os.getenv("API_URL", "http://localhost:8000")
+from model import SentimentModel
+from data_sources import TopicDataService
+from collections import Counter
+from dotenv import load_dotenv
+
+load_dotenv()
+
+@st.cache_resource
+def load_model():
+    return SentimentModel()
+
+@st.cache_resource
+def load_topic_service():
+    return TopicDataService()
+
+model = load_model()
+topic_data = load_topic_service()
 
 st.set_page_config(page_title="SentiFlow Dashboard", layout="wide")
 
@@ -21,23 +38,98 @@ with st.sidebar:
 
 
 # API functions
+# @st.cache_data
+# def fetch_prediction(text):
+#     r = requests.post(f"{API_URL}/predict", json={"text": text}, timeout=60)
+#     r.raise_for_status()
+#     return r.json()
 @st.cache_data
 def fetch_prediction(text):
-    r = requests.post(f"{API_URL}/predict", json={"text": text}, timeout=60)
-    r.raise_for_status()
-    return r.json()
+    return model.predict(text)
 
-
+# @st.cache_data(show_spinner=False)
+# def fetch_topic(keyword, source, limit):
+#     r = requests.post(
+#         f"{API_URL}/analyze_topic",
+#         json={"keyword": keyword, "source": source, "limit": limit},
+#         timeout=60,
+#     )
+#     r.raise_for_status()
+#     return r.json()
 @st.cache_data(show_spinner=False)
 def fetch_topic(keyword, source, limit):
-    r = requests.post(
-        f"{API_URL}/analyze_topic",
-        json={"keyword": keyword, "source": source, "limit": limit},
-        timeout=60,
+    fetch_result = topic_data.fetch(
+        keyword=keyword,
+        source=source,
+        limit=limit
     )
-    r.raise_for_status()
-    return r.json()
 
+    items = fetch_result["items"]
+    errors = fetch_result["errors"]
+
+    if not items:
+        return {
+            "keyword": keyword,
+            "source": source,
+            "count": 0,
+            "sentiment_label": "NEUTRAL",
+            "dominant_emotion": "NEUTRAL",
+            "emotion_breakdown": {},
+            "source_errors": errors,
+            "items": [],
+        }
+
+    texts = [item["text"] for item in items]
+
+    predictions = model.predict_batch(texts)
+
+    enriched_items = []
+    emotion_counter = Counter()
+    label_counter = Counter()
+
+    for item, prediction in zip(items, predictions):
+
+        emotion = prediction.get("emotion", "NEUTRAL")
+        label = prediction.get("label", "NEUTRAL")
+
+        emotion_counter[emotion] += 1
+        label_counter[label] += 1
+
+        enriched_items.append({
+            **item,
+            "label": label,
+            "score": float(prediction.get("score", 0.0)),
+            "sentiment_value": float(
+                prediction.get("sentiment_value", 0.0)
+            ),
+            "emotion": emotion,
+            "emotion_score": float(
+                prediction.get("emotion_score", 0.0)
+            ),
+        })
+
+    sentiment_label = (
+        label_counter.most_common(1)[0][0]
+        if label_counter
+        else "NEUTRAL"
+    )
+
+    top_emotion = (
+        emotion_counter.most_common(1)[0][0]
+        if emotion_counter
+        else "NEUTRAL"
+    )
+
+    return {
+        "keyword": keyword,
+        "source": source,
+        "count": len(enriched_items),
+        "sentiment_label": sentiment_label,
+        "dominant_emotion": top_emotion,
+        "emotion_breakdown": dict(emotion_counter),
+        "source_errors": errors,
+        "items": enriched_items,
+    }
 
 def render_wordcloud(texts):
     joined = " ".join(str(text) for text in texts if str(text).strip()).strip()
@@ -119,73 +211,95 @@ if mode == "Manual Text":
 elif mode == "Topic Tracking":
     controls = st.columns([3, 1, 1])
     keyword = controls[0].text_input("Search keyword", placeholder="e.g. Tesla, IPL, iPhone")
-    source = controls[1].selectbox("Source", ["all", "newsapi", "gnews", "twitter"])
+    # source = controls[1].selectbox("Source", ["all", "newsapi", "gnews", "twitter"])
+    source = controls[1].selectbox("Source",["gnews"])
     limit = controls[2].slider("Texts", 50, 100, 50, step=10)
 
     if st.button("Track Topic"):
         if not keyword.strip():
             st.warning("Enter a keyword to fetch and analyze real texts.")
         else:
-            try:
-                with st.spinner(f"Fetching and analyzing {limit} texts for '{keyword}'..."):
-                    topic = fetch_topic(keyword, source, limit)
-            except HTTPError as exc:
-                try:
-                    detail = exc.response.json().get("detail", str(exc))
-                except ValueError:
-                    detail = str(exc)
-                if isinstance(detail, dict):
-                    st.error(detail.get("message", "Topic tracking failed."))
-                    if detail.get("sources"):
-                        st.json(detail["sources"])
-                else:
-                    st.error(detail)
-            else:
-                source_errors = topic.get("source_errors", {})
-                if source_errors:
-                    st.warning("Some sources failed, but partial results are shown below.")
-                    st.json(source_errors)
+            with st.spinner(
+                f"Fetching and analyzing {limit} texts for '{keyword}'..."
+            ):
+                topic = fetch_topic(keyword, source, limit)
 
-                metrics = st.columns(4)
-                sentiment_label = topic.get("sentiment_label")
-                if not sentiment_label:
-                    avg_sentiment = float(topic.get("avg_sentiment", 0.0))
-                    if avg_sentiment > 0.2:
-                        sentiment_label = "POSITIVE"
-                    elif avg_sentiment < -0.2:
-                        sentiment_label = "NEGATIVE"
-                    else:
-                        sentiment_label = "NEUTRAL"
-                metrics[0].metric("Texts analyzed", topic["count"])
-                metrics[1].metric("Sentiment", sentiment_label)
-                metrics[2].metric("Dominant emotion", topic["dominant_emotion"])
-                metrics[3].metric("Source", topic["source"])
+            source_errors = topic.get("source_errors", {})
 
-                emotion_df = pd.DataFrame(
-                    list(topic["emotion_breakdown"].items()),
-                    columns=["emotion", "count"],
+            if source_errors:
+                st.warning("Some sources failed.")
+                st.json(source_errors)
+
+            metrics = st.columns(4)
+
+            sentiment_label = topic.get("sentiment_label", "NEUTRAL")
+
+            metrics[0].metric(
+                "Texts analyzed",
+                topic.get("count", 0)
+            )
+
+            metrics[1].metric(
+                "Sentiment",
+                sentiment_label
+            )
+
+            metrics[2].metric(
+                "Dominant emotion",
+                topic.get("dominant_emotion", "NEUTRAL")
+            )
+
+            metrics[3].metric(
+                "Source",
+                topic.get("source", "gnews")
+            )
+
+            emotion_df = pd.DataFrame(
+                list(topic.get("emotion_breakdown", {}).items()),
+                columns=["emotion", "count"],
+            )
+
+            if not emotion_df.empty:
+                st.subheader("Emotion Breakdown")
+                st.bar_chart(
+                    emotion_df.set_index("emotion")
                 )
-                if not emotion_df.empty:
-                    st.subheader("Emotion Breakdown")
-                    st.bar_chart(emotion_df.set_index("emotion"))
 
-                items_df = pd.DataFrame(topic["items"])
-                st.subheader("Fetched Texts")
+            items_df = pd.DataFrame(
+                topic.get("items", [])
+            )
+
+            st.subheader("Fetched Texts")
+
+            if items_df.empty:
+                st.info(
+                    "No texts were found for this topic."
+                )
+            else:
+                display_columns = [
+                    "published_at",
+                    "source",
+                    "author",
+                    "label",
+                    "emotion",
+                    "score",
+                    "sentiment_value",
+                    "text",
+                ]
+
+                display_columns = [
+                    column
+                    for column in display_columns
+                    if column in items_df.columns
+                ]
+
                 st.dataframe(
-                    items_df[
-                        [
-                            "published_at",
-                            "source",
-                            "author",
-                            "label",
-                            "emotion",
-                            "score",
-                            "sentiment_value",
-                            "text",
-                        ]
-                    ],
+                    items_df[display_columns],
                     use_container_width=True,
                 )
 
                 st.subheader("Topic Word Cloud")
-                render_wordcloud(items_df["text"].tolist())
+
+                render_wordcloud(
+                    items_df["text"].tolist()
+                )
