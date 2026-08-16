@@ -1,5 +1,5 @@
 # SentiFlow
-
+Deployed Link-https://sentiflow-uchc7xmasvswttaazapp6qq.streamlit.app/
 SentiFlow is a real-time sentiment intelligence system with:
 - FastAPI backend using HuggingFace DistilBERT sentiment model
 - Streamlit frontend dashboard
